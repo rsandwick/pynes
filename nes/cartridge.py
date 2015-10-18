@@ -11,7 +11,7 @@ MAGIC_INES = 0x4e45531a
 # -- control bits (2 bytes)
 # -- PRG-RAM size in 8kB blocks (ignored here)
 # -- other ignored data and padding (7 bytes)
-iNESFileHeader = struct.Struct(">IBBH X7X")
+iNESFileHeader = struct.Struct(">IBBHx7x")
 
 class CartridgeError(StandardError):
     """Base class for cartridge-related errors."""

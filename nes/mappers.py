@@ -1,6 +1,8 @@
 import logging
 logger = logging.getLogger("nes.mappers")
 
+from .memory import Mirror
+
 class MapperError(StandardError):
     """Base error for Mapper exceptions."""
 class MapperReadError(MapperError):
@@ -16,13 +18,7 @@ class MapperWriteError(MapperError):
 
 class Mapper(object):
 
-    _mappers = {
-        1: Mapper1,
-        2: Mapper2,
-        3: Mapper3,
-        #4: Mapper4,
-        7: Mapper7,
-    }
+    _mappers = {}
 
     def __init__(self, cartridge):
         self._cartridge = cartridge
@@ -58,7 +54,7 @@ class Mapper1(Mapper):
 
     _prg_mode = 0
     _prg_bank = 0
-    _prg_offets = [0, 0]
+    _prg_offsets = [0, 0]
 
     def __init__(self, cartridge):
         super(Mapper1, self).__init__(cartridge)
@@ -296,3 +292,12 @@ class Mapper7(Mapper):
             self._cartridge.sram[addr - 0x6000] = v
         else:
             raise MapperWriteError(type(self), addr)
+
+
+Mapper._mappers.update({
+    1: Mapper1,
+    2: Mapper2,
+    3: Mapper3,
+    #4: Mapper4,
+    7: Mapper7,
+})

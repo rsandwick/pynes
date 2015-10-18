@@ -5,7 +5,7 @@ from .instructions import instructions
 
 logger = logging.getLogger("nes.cpu")
 
-CPUFREQ = 1789773
+CPUFREQ = 1789773.0
 
 # interrupt types
 Interrupt = enum([

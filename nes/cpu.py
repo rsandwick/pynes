@@ -1,9 +1,8 @@
 import logging
+logger = logging.getLogger("nes.cpu")
 
 from .util import enum
 from .instructions import instructions
-
-logger = logging.getLogger("nes.cpu")
 
 CPUFREQ = 1789773.0
 

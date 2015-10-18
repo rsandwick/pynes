@@ -1,11 +1,24 @@
-import pygame
+import logging
+logger = logging.getLogger("nes.console")
 
-from .controller import Controller
+from pygame import Color
 from .apu import APU
 from .cpu import CPU
 from .ppu import PPU
+from .util import enum
 
-palette = list(pygame.Color("0x%06xff" % (c,)) for c in (
+buttons = enum([
+    "a",
+    "b",
+    "select",
+    "start",
+    "up",
+    "down",
+    "left"
+    "right",
+])
+
+palette = list(Color("0x%06xff" % (c,)) for c in (
         0x666666, 0x002a88, 0x1412a7, 0x3b00a4,
         0x5c007e, 0x6e0040, 0x6c0600, 0x561d00,
         0x333500, 0x0b4800, 0x005200, 0x004f08,
@@ -24,6 +37,28 @@ palette = list(pygame.Color("0x%06xff" % (c,)) for c in (
         0xb5ebf2, 0xb8b8b8, 0x000000, 0x000000,
 ))
 
+class Controller(object):
+
+    buttons = list(False for _ in buttons)
+    index = 0
+    strobe = 0
+
+    def _strobe_index(self):
+        if self.strobe & 1:
+            self.index = 0
+
+    def read(self):
+        v = int(self.index < 8 and self.buttons[self.index])
+        self.index += 1
+        self._strobe_index()
+        if self.strobe & 1:
+            self.index = 0
+        return v
+
+    def write(self, v):
+        self.strobe = v & 0xff
+        self._strobe_index()
+
 class Console(object):
 
     cartridge = None
@@ -33,22 +68,25 @@ class Console(object):
         self.ram = bytearray(2048)
         self.controllers = (Controller(), Controller())
         self.apu = APU(self)
-        self.cpu = CPU(self)
+        self.cpu = CPU()
         self.ppu = PPU(self)
 
     @classmethod
     def load(cls, cartridge):
         self = cls() if isinstance(cls, type) else cls
         self.cartrige = cartridge
-        self.mapper = Mapper(self.cartridge)
+
+    @property
+    def background_color(self):
+        return palette[self.ppu.read_palette(0) % 0x40]
 
     @property
     def buffer(self):
         return self.ppu.front
 
     @property
-    def background_color(self):
-        return palette[self.ppu.read_palette(0) % 0x40]
+    def mapper(self):
+        return self.cartridge.mapper
 
     def reset(self):
         self.cpu.reset()

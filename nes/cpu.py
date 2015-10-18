@@ -1,6 +1,6 @@
 import logging
 
-from ..util import enum
+from .util import enum
 from .instructions import instructions
 
 logger = logging.getLogger("nes.cpu")

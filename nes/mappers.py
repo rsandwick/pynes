@@ -3,21 +3,11 @@ logger = logging.getLogger("nes.mappers")
 
 from .memory import Mirror
 
-class MapperError(StandardError):
-    """Base error for Mapper exceptions."""
-class MapperReadError(MapperError):
-    """Error while reading mapped memory."""
-    def __init__(self, mapper, address):
-        super(MapperReadError, self).__init__(
-                "unhandled %s read at address: 0x%04x" % (mapper, address))
-class MapperWriteError(MapperError):
-    """Error while writing mapped memory."""
-    def __init__(self, mapper, address):
-        super(MapperWriteError, self).__init__(
-                "unhandled %s write at address: 0x%04x" % (mapper, address))
 
 class Mapper(object):
 
+    _bad_read = "unhandled %s read at address: 0x%04x"
+    _bad_write = "unhandled %s write at address: 0x%04x"
     _mappers = {}
 
     def __init__(self, cartridge):
@@ -33,13 +23,7 @@ class Mapper(object):
             logger.error(msg, k)
             raise ValueError(msg % (k,))
 
-    def read(self, addr):
-        raise NotImplementedError("Mapper.read() must be implemented")
-
     def step(self): pass
-
-    def write(self, addr, v):
-        raise NotImplementedError("Mapper.write() must be implemented")
 
 
 class Mapper1(Mapper):
@@ -74,7 +58,7 @@ class Mapper1(Mapper):
         elif addr >= 0x6000:
             return self._cartridge.sram[addr - 0x6000]
         else:
-            raise MapperReadError(type(self), addr)
+            raise MemoryError(self._bad_read % (type(self), addr))
 
     def write(self, addr, v):
         addr &= 0xffff
@@ -88,7 +72,7 @@ class Mapper1(Mapper):
         elif addr >= 0x6000:
             self._cartridge._sram[addr - 0x6000] = v
         else:
-            raise MapperWriteError(type(self), addr)
+            raise MemoryError(self._bad_write % (type(self), addr))
 
     def _load_register(self, addr, v):
         if value & 0x80:
@@ -207,7 +191,7 @@ class Mapper2(Mapper):
         elif addr >= 0x6000:
             return self._cartridge.sram[addr - 0x6000]
         else:
-            raise MapperReadError(type(self), addr)
+            raise MemoryError(self._bad_read % (type(self), addr))
 
     def write(self, addr, v):
         addr &= 0xffff
@@ -219,7 +203,7 @@ class Mapper2(Mapper):
         elif addr >= 0x6000:
             self._cartridge.sram[addr - 0x6000] = v
         else:
-            raise MapperWriteError(type(self), addr)
+            raise MemoryError(self._bad_write % (type(self), addr))
 
 
 class Mapper3(Mapper):
@@ -245,7 +229,7 @@ class Mapper3(Mapper):
         elif addr >= 0x6000:
             return self._cartridge.sram[addr - 0x6000]
         else:
-            raise MapperReadError(type(self), addr)
+            raise MemoryError(self._bad_read % (type(self), addr))
 
     def write(self, addr, v):
         addr &= 0xffff
@@ -257,7 +241,7 @@ class Mapper3(Mapper):
         elif addr >= 0x6000:
             self._cartridge.sram[addr - 0x6000] = v
         else:
-            raise MapperWriteError(type(self), addr)
+            raise MemoryError(self._bad_write % (type(self), addr))
 
 
 #TODO: mapper 4 is kinda big -- come back to it a little later
@@ -277,7 +261,7 @@ class Mapper7(Mapper):
         elif addr >= 0x6000:
             return self._cartridge.sram[addr - 0x6000]
         else:
-            raise MapperReadError(type(self), addr)
+            raise MemoryError(self._bad_read % (type(self), addr))
 
     def write(self, addr, v):
         addr &= 0xffff
@@ -291,7 +275,7 @@ class Mapper7(Mapper):
         elif addr >= 0x6000:
             self._cartridge.sram[addr - 0x6000] = v
         else:
-            raise MapperWriteError(type(self), addr)
+            raise MemoryError(self._bad_write % (type(self), addr))
 
 
 Mapper._mappers.update({

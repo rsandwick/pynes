@@ -89,8 +89,8 @@ class CPU(object):
         elif k in self._flags:
             return bool(getattr(self, _k))
         else:
-            return super(CPU, self).__getattr__(k)
-            #raise AttributeError("CPU object has no attribute '%s'" % (k,))
+            #return super(CPU, self).__getattr__(k)
+            raise AttributeError("CPU object has no attribute '%s'" % (k,))
 
     def __setattr__(self, k, v):
         _k = "_%s" % (k,)
@@ -183,18 +183,18 @@ class CPU(object):
 
     ### interrupts ###
 
-    def nmi(self):
+    def NMI(self):
         """Perform a non-maskable interrupt."""
         self.push16(self.pc)
-        self.php(None, None)
+        self.PHP(None, None)
         self.pc = self.read16(addr=0xfffa)
         self.i = 1
         self.cycles += 7
 
-    def irq(self):
+    def IRQ(self):
         """Perform an IRQ interrupt."""
         self.push16(self.pc)
-        self.php()
+        self.PHP()
         self.pc = self.read16(addr=0xfffe)
         self.i = 1
         self.cycles += 7
@@ -210,9 +210,9 @@ class CPU(object):
         cycles = self.cycles
 
         if self.interrupt == Interrupt.NMI:
-            self.nmi()
+            self.NMI()
         elif self.interrupt == Interrupt.IRQ:
-            self.irq()
+            self.IRQ()
         self.interrupt = Interrupt.NONE
 
         op = instructions[self.read()]
@@ -431,8 +431,8 @@ class CPU(object):
     def BRK(self, addr, mode):
         """Force interrupt."""
         self.push16(self.pc)
-        self.php(None, None)
-        self.sei(None, None)
+        self.PHP(None, None)
+        self.SEI(None, None)
         self.pc = self.read16(addr=0xfffe)
 
     def DEC(self, addr, mode):

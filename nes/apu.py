@@ -49,6 +49,11 @@ class APU(object):
 
     def __init__(self, console):
         self._console = console
+        self._pulse1 = Pulse()
+        self._pulse2 = Pulse()
+        self._triangle = Triangle()
+        self._noise = Noise()
+        self._dmc = DMC()
         self._noise.shift_register = 1
         self._pulse1.channel = 1
         self._pulse2.channel = 2

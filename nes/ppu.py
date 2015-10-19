@@ -2,7 +2,7 @@ import logging
 import pygame
 logger = logging.getLogger("nes.ppu")
 
-from .console import palette
+import console
 from . import memory
 
 class PPU(memory.Memory):
@@ -144,7 +144,7 @@ class PPU(memory.Memory):
 
     def read_status(self):
         # $2002: PPUSTATUS
-        result = self.register & 0x1_f
+        result = self.register & 0x1f
         result |= self.flag_sprite_overflow << 5
         result |= self.flag_sprite_zero_hit << 6
         if self.nmi_occurred:
@@ -359,7 +359,7 @@ class PPU(memory.Memory):
                 color = sprite | 0x10
             else:
                 color = background
-        c = palette[self.read_palette(color) & 0x3f]
+        c = console.palette[self.read_palette(color) & 0x3f]
         self.back.set_at((x, y), c)
 
     def fetch_sprite_pattern(self, i, y):
@@ -381,7 +381,7 @@ class PPU(memory.Memory):
         a = (attr & 3) << 2
         low, high = self.read(addr), self.read(addr + 8)
         data = 0
-        for _ in xrange(8)
+        for _ in xrange(8):
             if attr & 0x40:
                 p1, p2 = low & 1, (high & 1) << 1
                 low >>= 1
@@ -422,7 +422,7 @@ class PPU(memory.Memory):
 
         if self.flag_show_background and self.flag_show_sprites:
             #TODO: what are these magicks?
-            if self.f == 1 and self.scanline == 261 and self.cycle = 339:
+            if self.f == 1 and self.scanline == 261 and self.cycle == 339:
                 self.cycle = 0
                 self.scanline = 0
                 self.frame += 1

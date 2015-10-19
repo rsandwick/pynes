@@ -3,9 +3,9 @@ import struct
 logger = logging.getLogger("nes.console")
 
 from pygame import Color
-from .apu import APU
-from .cpu import CPU
-from .ppu import PPU
+import apu
+import cpu
+import ppu
 from .util import enum
 
 buttons = enum([
@@ -117,14 +117,15 @@ class Console(object):
     def __init__(self):
         self.ram = bytearray(2048)
         self.controllers = (Controller(), Controller())
-        self.apu = APU(self)
-        self.cpu = CPU()
-        self.ppu = PPU(self)
+        self.cpu = cpu.CPU()
+        self.apu = apu.APU(self)
+        self.ppu = ppu.PPU(self)
 
     @classmethod
     def load(cls, cartridge):
         self = cls() if isinstance(cls, type) else cls
         self.cartrige = cartridge
+        return self
 
     @property
     def background_color(self):

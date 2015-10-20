@@ -12,8 +12,8 @@ Mirror = enum([
 ])
 
 def mirror_address(mode, addr):
-    addr &= 0xffff
-    table = addr / 0x0400
+    addr = (addr - 0x2000) & 0x0fff
+    table = addr >> 10
     offset = addr & 0x03ff
     page = ((0, 0, 1, 1),
             (0, 1, 0, 1),
@@ -183,7 +183,7 @@ class Mapper1(Mapper):
             raise MemoryError(self._bad_write % (type(self), addr))
 
     def _load_register(self, addr, v):
-        if value & 0x80:
+        if v & 0x80:
             self._shift_register = 0x10
             self._write_control(self._control | 0x0c)
         else:

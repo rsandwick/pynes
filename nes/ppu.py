@@ -5,7 +5,7 @@ logger = logging.getLogger("nes.ppu")
 import console
 from . import memory
 
-class PPU(memory.Memory):
+class PPU(memory.PPUMemory):
 
     #TODO: come back to rest of struct (registers, flags, etc.)
     # registers
@@ -63,7 +63,7 @@ class PPU(memory.Memory):
     def __init__(self, console):
         super(PPU, self).__init__(console)
         self.palette = bytearray(32)
-        self.name_table = bytearray(2048)
+        self.name_table_data = bytearray(2048)
         self.oam_data = bytearray(256)
         self.front = pygame.Surface((256, 240))
         self.back = pygame.Surface((256, 240))
@@ -87,36 +87,47 @@ class PPU(memory.Memory):
             addr -= 16
         self.palette[addr] = v & 0xff
 
-    def read_register(addr):
-        if addr == 0x2002:
-            return self.read_status()
-        elif addr == 0x2004:
-            return self.read_oam()
-        elif addr == 0x2007:
-            return self.read_data()
-        else:
-            return 0
+    def read_register(self, addr):
+        return {0x2002: self.read_status,
+                0x2004: self.read_oam_data,
+                0x2007: self.read_data}.get(addr, lambda: 0)()
+        #if addr == 0x2002:
+        #    return self.read_status()
+        #elif addr == 0x2004:
+        #    return self.read_oam_data()
+        #elif addr == 0x2007:
+        #    return self.read_data()
+        #else:
+        #    return 0
 
     def write_register(self, addr, v):
-        addr &= 0xffff
-        v &= 0xff
+        #addr &= 0xffff
+        #v &= 0xff
         self.register = v
-        if addr == 0x2000:
-            self.write_control(v)
-        elif addr == 0x2001:
-            self.write_mask(v)
-        elif addr == 0x2003:
-            self.write_oam_addr(v)
-        elif addr == 0x2004:
-            self.write_oam_data(v)
-        elif addr == 0x2005:
-            self.write_scroll(v)
-        elif addr == 0x2006:
-            self.write_address(v)
-        elif addr == 0x2007:
-            self.write_data(v)
-        elif addr == 0x4014:
-            self.write_dma(v)
+        {0x2000: self.write_control,
+         0x2001: self.write_mask,
+         0x2003: self.write_oam_addr,
+         0x2004: self.write_oam_data,
+         0x2005: self.write_scroll,
+         0x2006: self.write_address,
+         0x2007: self.write_data,
+         0x4014: self.write_dma}.get(addr, lambda v: None)(v)
+        #if addr == 0x2000:
+        #    self.write_control(v)
+        #elif addr == 0x2001:
+        #    self.write_mask(v)
+        #elif addr == 0x2003:
+        #    self.write_oam_addr(v)
+        #elif addr == 0x2004:
+        #    self.write_oam_data(v)
+        #elif addr == 0x2005:
+        #    self.write_scroll(v)
+        #elif addr == 0x2006:
+        #    self.write_address(v)
+        #elif addr == 0x2007:
+        #    self.write_data(v)
+        #elif addr == 0x4014:
+        #    self.write_dma(v)
 
     def write_control(self, v):
         # $2000: PPUCTRL
@@ -149,7 +160,7 @@ class PPU(memory.Memory):
         result |= self.flag_sprite_zero_hit << 6
         if self.nmi_occurred:
             result |= 1 << 7
-        self.nmi_occurred = false
+        self.nmi_occurred = False
         self.nmi_change()
         self.w = 0
         return result
@@ -442,7 +453,8 @@ class PPU(memory.Memory):
         """Execute a single PPU cycle."""
         self.tick()
 
-        render_enable = self.flag_show_background and self.flag_show_sprites
+        #render_enable = self.flag_show_background and self.flag_show_sprites
+        render_enable = True
         pre_line = self.scanline == 261
         visible_line = self.scanline < 240
         #post_line = self.scanline == 240
@@ -451,8 +463,8 @@ class PPU(memory.Memory):
         visible_cycle = (0 < self.cycle <= 256)
         fetch_cycle = prefetch_cycle or visible_cycle
 
-        # background logic
         if render_enable:
+            # background logic
             if visible_line and visible_cycle:
                 self.render_pixel()
             if render_line and fetch_cycle:
@@ -461,7 +473,7 @@ class PPU(memory.Memory):
                 if c == 1:
                     self.fetch_name_table_byte()
                 elif c == 3:
-                    self.fetch_attribute_table_byte()
+                    self.fetch_attr_table_byte()
                 elif c == 5:
                     self.fetch_low_tile_byte()
                 elif c == 7:
@@ -478,8 +490,7 @@ class PPU(memory.Memory):
                 if self.cycle == 257:
                     self.copy_x()
 
-        # sprite logic
-        if render_enable:
+            # sprite logic
             if self.cycle == 257:
                 if visible_line:
                     self.evaluate_sprites()

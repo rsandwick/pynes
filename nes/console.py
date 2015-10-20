@@ -1,5 +1,6 @@
 import logging
 import struct
+import time
 logger = logging.getLogger("nes.console")
 
 from pygame import Color
@@ -60,6 +61,9 @@ class Cartridge(object):
         self.mirror = mirror
         self.battery = battery
         self.sram = bytearray(8 << 10)
+        logger.debug("loaded rom")
+        logger.debug("prg size: %d", len(self.prg))
+        logger.debug("chr size: %d", len(self.chr))
 
     @classmethod
     def fromfile(cls, path):
@@ -112,21 +116,18 @@ class Controller(object):
 
 class Console(object):
 
-    cartridge = None
-    mapper = None
-
     def __init__(self):
         self.ram = bytearray(2048)
         self.controllers = (Controller(), Controller())
-        self.cpu = cpu.CPU()
-        self.apu = apu.APU(self)
-        self.ppu = ppu.PPU(self)
 
     @classmethod
     def load(cls, cartridge):
         self = cls() if isinstance(cls, type) else cls
         self.cartridge = cartridge
         self.mapper = memory.Mapper.fromcart(self.cartridge)
+        self.cpu = cpu.CPU(self)
+        self.apu = apu.APU(self)
+        self.ppu = ppu.PPU(self)
         return self
 
     @property
@@ -141,12 +142,18 @@ class Console(object):
         self.cpu.reset()
 
     def step(self):
+        pstep = self.ppu.step
+        mstep = self.mapper.step
+        astep = self.apu.step
         cycles = self.cpu.step()
-        for _ in xrange(cycles * 3):
-            self.ppu.step()
-            self.mapper.step()
         for _ in xrange(cycles):
-            self.apu.step()
+            pstep()
+            mstep()
+            pstep()
+            mstep()
+            pstep()
+            mstep()
+            astep()
         return cycles
 
     def step_frame(self):
@@ -155,6 +162,12 @@ class Console(object):
         return sum(self.cpu.step() for _ in frame_steps)
 
     def step_seconds(self, seconds):
-        cycles = CPUFREQ * seconds
+        cycles = cpu.CPUFREQ * seconds
+        #last_time = start_time = time.time()
         while cycles > 0:
             cycles -= self.step()
+            #this_time = time.time()
+            #if this_time - last_time > 0.2:
+            #    logger.debug("cycles: %s", cycles)
+            #    logger.debug("elapsed: %s", this_time - start_time)
+            #    last_time = this_time

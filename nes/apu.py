@@ -72,10 +72,12 @@ class APU(object):
         self._cycle += 1
         cycle2 = self._cycle
         self._step_timer()
-        f1, f2 = (float(c) / FRAMECOUNTERRATE for c in (cycle1, cycle2))
+        f1 = int(cycle1 / FRAMECOUNTERRATE)
+        f2 = int(cycle2 / FRAMECOUNTERRATE)
         if f1 != f2:
             self._step_frame_counter()
-        s1, s2 = (float(c) / SAMPLERATE for c in (cycle1, cycle2))
+        s1 = int(cycle1 / SAMPLERATE)
+        s2 = int(cycle2 / SAMPLERATE)
         if s1 != s2:
             self._send_sample()
 
@@ -215,14 +217,23 @@ class APU(object):
         #    self._step_length()
 
 
-class Envelope(Record):
+class Envelope(object):
     __slots__ = ("enabled", "period", "value", "loop", "start", "volume")
+    def __init__(self, *args):
+        for k, v in zip(self.__slots__, args):
+            setattr(self, k, v)
 
-class Sweep(Record):
+class Sweep(object):
     __slots__ = ("enabled", "period", "value", "negate", "reload", "shift")
+    def __init__(self, *args):
+        for k, v in zip(self.__slots__, args):
+            setattr(self, k, v)
 
-class Periodic(Record):
+class Periodic(object):
     __slots__ = ("period", "value", "reload")
+    def __init__(self, *args):
+        for k, v in zip(self.__slots__, args):
+            setattr(self, k, v)
 
 class LengthMixIn(object):
 

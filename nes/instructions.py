@@ -1,11 +1,74 @@
 import collections
 
+def pages_differ(a, b):
+    """Test if two addresses reference different pages."""
+    return a & 0xff00 != b & 0xff00
+
+def _addr_absolute(cpu):
+    return cpu.read16(cpu.p + 1), False
+
+def _addr_absolutex(cpu):
+    addr = (cpu.read16(cpu.p + 1) + (cpu.x)) & 0xffff
+    return (addr, pages_differ(addr - cpu.x, addr))
+
+def _addr_absolutey(cpu):
+    addr = (cpu.read16(cpu.p + 1) + (cpu.y)) & 0xffff
+    return (addr, pages_differ(addr - cpu.y, addr))
+
+def _addr_accumulator(cpu):
+    return 0, False
+
+def _addr_immediate(cpu):
+    return cpu.p + 1, False
+
+def _addr_implied(cpu):
+    return 0, False
+
+def _addr_indexedindirect(cpu):
+    return cpu.read16bug(cpu.p + cpu.read(cpu.p + 1) + cpu.x), False
+
+def _addr_indirect(cpu):
+    return cpu.read16bug(cpu.p + cpu.read(cpu.p + 1)), False
+
+def _addr_indirectindexed(cpu):
+    return (cpu.read16bug(cpu.p + cpu.read(cpu.p + 1)) + cpu.y,
+            pages_differ(addr - cpu.y, addr))
+
+def _addr_relative(cpu):
+    offset = cpu.read(cpu.p + 1)
+    return cpu.p + 2 + offset - (0 if offset < 0x80 else 0x100), False
+
+def _addr_zeropage(cpu):
+    return cpu.read(cpu.p + 1), False
+
+def _addr_zeropagex(cpu):
+    return cpu.read(cpu.p + 1) + cpu.x, False
+
+def _addr_zeropagey(cpu):
+    return cpu.read(cpu.p + 1) + cpu.y, False
+
+addressing_modes = [
+    _addr_absolute,
+    _addr_absolutex,
+    _addr_absolutey,
+    _addr_accumulator,
+    _addr_immediate,
+    _addr_implied,
+    _addr_indexedindirect,
+    _addr_indirect,
+    _addr_indirectindexed,
+    _addr_relative,
+    _addr_zeropage,
+    _addr_zeropagex,
+    _addr_zeropagey,
+]
+
 # container for op details
 Instruction = collections.namedtuple("Instruction",
         ["name", "mode", "size", "cycles", "pagecycles"])
 
 # mapping of opcodes to op details
-instructions = dict(enumerate(Instruction(*op) for op in [
+instructions = list(Instruction(*op) for op in [
         ("BRK", 6, 1, 7, 0),
         ("ORA", 7, 2, 6, 0),
         ("KIL", 6, 0, 2, 0),
@@ -262,4 +325,4 @@ instructions = dict(enumerate(Instruction(*op) for op in [
         ("SBC", 2, 3, 4, 1),
         ("INC", 2, 3, 7, 0),
         ("ISC", 2, 0, 7, 0),
-]))
+])

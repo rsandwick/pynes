@@ -1,8 +1,10 @@
 import logging
+import pprint
 logger = logging.getLogger("nes.cpu")
 
+import memory
 from .util import enum
-from .instructions import instructions
+from .instructions import addressing_modes, instructions, pages_differ
 
 CPUFREQ = 1789773.0
 
@@ -30,18 +32,25 @@ Mode = enum([
     "ZeroPageY",
 ])
 
-def pages_differ(a, b):
-    """Test if two addresses reference different pages."""
-    return a & 0xff00 != b & 0xff00
-
-class CPU(object):
+class CPU(memory.CPUMemory):
 
     # cpu internal data
-    _pc = 0 # program counter
-    _sp = 0 # stack pointer
+    p = 0 # program counter
+    s = 0 # stack pointer
+    # -- underlying data for properties .a, .x, .y
     _a = 0 # accumulator
     _x = 0 # x register
     _y = 0 # y register
+
+    # cpu flags
+    c = False # carry
+    z = False # zero
+    i = False # interrupt disable
+    d = False # decimal mode
+    b = False # break command
+    u = False # unused
+    v = False # overflow
+    n = False # negative
 
     # 64kB memory area
     memory = None
@@ -52,103 +61,96 @@ class CPU(object):
     # number of cycles to stall
     stall = 0
 
-    def __init__(self):
+    def __init__(self, console):
+        self._console = console
         # instruction (+ data) queue
-        self.memory = bytearray(65536)
+        self.mem = bytearray(65536)
         self.reset()
 
     _flags = "czidbuvn"
     @property
     def flags(self):
-        """Flags bitfield, representing additional CPU state.
-
-        In order of least to most significant bit, the flags are:
-
-        (c)arry --
-        (z)ero --
-        (i)nterrupt Disable --
-        (d)ecimal Mode --
-        (b)reak Command --
-        (u)nused --
-        O(v)erflow --
-        (n)egative --
-
-        """
-        return sum(getattr(self, k) << i for i, k in enumerate(self._flags))
+        """Flags bitfield, representing additional CPU state."""
+        return (self.c +
+                self.z << 1 +
+                self.i << 2 +
+                self.d << 3 +
+                self.b << 4 +
+                self.u << 5 +
+                self.v << 6 +
+                self.n << 7)
     @flags.setter
     def flags(self, flags):
-        for i, k in enumerate(self._flags):
-            setattr(self, k, bool((flags >> i) & 1))
+        self.c = bool(flags & 0x01)
+        self.z = bool(flags & 0x02)
+        self.i = bool(flags & 0x04)
+        self.d = bool(flags & 0x08)
+        self.b = bool(flags & 0x10)
+        self.u = bool(flags & 0x20)
+        self.v = bool(flags & 0x40)
+        self.n = bool(flags & 0x80)
 
-    def __getattr__(self, k):
-        _k = "_%s" % (k,)
-        if k == "pc":
-            return getattr(self, _k) & 0xffff
-        elif k in ("sp", "a", "x", "y"):
-            return getattr(self, _k) & 0xff
-        elif k in self._flags:
-            return bool(getattr(self, _k))
-        else:
-            #return super(CPU, self).__getattr__(k)
-            raise AttributeError("CPU object has no attribute '%s'" % (k,))
+    @property
+    def a(self):
+        return self._a
+    @a.setter
+    def a(self, v):
+        self._a = v & 0xff
+        self.set_zn(v)
 
-    def __setattr__(self, k, v):
-        _k = "_%s" % (k,)
-        if k == "pc":
-            setattr(self, _k, v & 0xffff)
-        elif k == "sp":
-            setattr(self, _k, v & 0xff)
-        elif k in ("a", "x", "y"):
-            setattr(self, _k, v & 0xff)
-            self.set_zn(v & 0xff)
-        elif k in self._flags:
-            setattr(self, _k, bool(v))
-        else:
-            super(CPU, self).__setattr__(k, v)
-            #raise AttributeError("CPU object has no attribute '%s'" % (k,))
+    @property
+    def x(self):
+        return self._x
+    @x.setter
+    def x(self, v):
+        self._x = v & 0xff
+        self.set_zn(v)
+
+    @property
+    def y(self):
+        return self._y
+    @y.setter
+    def y(self, v):
+        self._y = v & 0xff
+        self.set_zn(v)
 
     def reset(self):
-        self.pc = self.read16(0xfffc)
-        self.sp = 0xfd
+        self.p = self.read16(0xfffc)
+        self.s = 0xfd
         self.flags = 0x24
 
     def print_instruction(self):
-        op = instructions[self.read()]
-        w = tuple("%02x" % (self.read(offset=i),) for i in xrange(op.size))
+        op = instructions[self.read(self.p)]
+        w = tuple("%02x" % (self.read(self.p + i),) for i in xrange(op.size))
         w0, w1, w2 = (w + ("  ", "  ", "  "))[:3]
         logger.debug(
                 "%04x %s %s %s %s "
-                "a:%02x x:%02x y:%02x p:%02x sp:%02x cyc:%3d",
-                self.pc, w0, w1, w2, op.name.ljust(32, " "),
-                self.a, self.x, self.y, self.flags, self.sp,
+                "a:%02x x:%02x y:%02x flags:%02x s:%02x cyc:%3d",
+                self.p, w0, w1, w2, op.name.ljust(32, " "),
+                self.a, self.x, self.y, self.flags, self.s,
                 (self.cycles * 3) % 341)
 
     def compare(self, a, b):
         self.set_zn(a - b)
         self.c = (a >= b)
 
-    def read(self, addr=None, offset=0):
-        return self.memory[(self.pc if addr is None else addr) + offset]
-
-    def read16(self, addr=None, offset=0):
+    def read16(self, addr):
         """Read two bytes as a 16-bit word."""
-        addr = (self.pc if addr is None else addr) + offset
-        return self.memory[addr] + (self.memory[addr + 1] << 8)
+        return self.read(addr) + (self.read(addr + 1) << 8)
 
-    def read16bug(self, addr=None, offset=0):
+    def read16bug(self, addr):
         """Read two bytes as a 16-bit word, while also emulating a 6502 bug.
 
         The bug caused the low byte to wrap w/o incrementing the high byte.
 
         """
-        addr = (self.pc if addr is None else addr) + offset
         bug = (addr & 0xff00) | ((addr & 0xff) + 1)
-        return self.memory[addr] + (self.memory[bug] << 8)
+        return self.read(addr) + (self.read(bug) << 8)
 
     def push(self, v):
         """Push one byte onto the stack."""
-        self.memory[(self.sp & 0xffff) | 0x100] = v & 0xff
-        self.sp -= 1
+        self.write((self.s & 0xffff) | 0x100, v & 0xff)
+        self.s -= 1
 
     def push16(self, v):
         """Push a 16-bit word onto the stack as two bytes."""
@@ -157,8 +159,8 @@ class CPU(object):
 
     def pull(self):
         """Pop one byte from the stack."""
-        self.sp += 1
-        return self.memory[(self.sp & 0xffff) | 0x100]
+        self.s += 1
+        return self.read((self.s & 0xffff) | 0x100)
 
     def pull16(self):
         """Pop two bytes from the stack as a 16-bit word."""
@@ -171,8 +173,9 @@ class CPU(object):
         self.n = ((v & 0x80) != 0)
 
     def set_zn(self, v):
-        self.set_z(v)
-        self.set_n(v)
+        # inline copy rather than another function call
+        self.z = (v == 0)
+        self.n = ((v & 0x80) != 0)
 
     def trigger_nmi(self):
         self.interrupt = Interrupt.NMI
@@ -185,17 +188,17 @@ class CPU(object):
 
     def NMI(self):
         """Perform a non-maskable interrupt."""
-        self.push16(self.pc)
+        self.push16(self.p)
         self.PHP(None, None)
-        self.pc = self.read16(addr=0xfffa)
+        self.p = self.read16(0xfffa)
         self.i = 1
         self.cycles += 7
 
     def IRQ(self):
         """Perform an IRQ interrupt."""
-        self.push16(self.pc)
+        self.push16(self.p)
         self.PHP()
-        self.pc = self.read16(addr=0xfffe)
+        self.p = self.read16(0xfffe)
         self.i = 1
         self.cycles += 7
 
@@ -215,46 +218,15 @@ class CPU(object):
             self.IRQ()
         self.interrupt = Interrupt.NONE
 
-        op = instructions[self.read()]
+        opcode = self.read(self.p)
+        op = instructions[opcode]
         mode = op.mode
-        page_crossed = False
+        addr, page_crossed = addressing_modes[mode](self)
 
-        if mode == Mode.Absolute:
-            addr = self.read16(offset=1)
-        elif mode == Mode.AbsoluteX:
-            addr = (self.read16(offset=1) + (self.x)) & 0xffff
-            page_crossed = pages_differ(addr - self.x, addr)
-        elif mode == Mode.AbsoluteY:
-            addr = (self.read16(offset=1) + (self.y)) & 0xffff
-            page_crossed = pages_differ(addr - self.y, addr)
-        elif mode == Mode.Accumulator:
-            addr = 0
-        elif mode == Mode.Immediate:
-            addr = self.pc + 1
-        elif mode == Mode.Implied:
-            addr = 0
-        elif mode == Mode.IndexedIndirect:
-            addr = self.read16bug(offset=self.read(offset=1) + self.x)
-        elif mode == Mode.Indirect:
-            addr = self.read16bug(offset=self.read(offset=1))
-        elif mode == Mode.IndirectIndexed:
-            addr = self.read16bug(offset=self.read(offset=1)) + self.y
-            page_crossed = pages_differ(addr - self.y, addr)
-        elif mode == Mode.Relative:
-            offset = self.read(offset=1)
-            addr = self.pc + 2 + offset - (0 if offset < 0x80 else 0x100)
-        elif mode == Mode.ZeroPage:
-            addr = self.read(offset=1)
-        elif mode == Mode.ZeroPageX:
-            addr = self.read(offset=1) + self.x
-        elif mode == Mode.ZeroPageY:
-            addr = self.read(offset=1) + self.y
-        addr &= 0xffff
-
-        self.pc += op.size & 0xffff
+        self.p = (self.p + op.size) & 0xffff
         self.cycles += op.cycles + (op.pagecycles if page_crossed else 0)
 
-        getattr(self, op.name)(addr, mode)
+        self._instructions[opcode](self, addr, mode)
         return self.cycles - cycles
 
     ### base branching op ###
@@ -263,13 +235,13 @@ class CPU(object):
         """Branch if a condition is met."""
         if condition:
             # add 1 cycle for taking a branch, 2 if it jumps to a new page
-            self.cycles += 2 if pages_differ(self.pc, addr) else 1
-            self.pc = addr
+            self.cycles += 2 if pages_differ(self.p, addr) else 1
+            self.p = addr
 
     ### simple instructions (one-liners) ###
 
     # logical AND
-    def AND(self, addr, mode): self.a = self.a & self.read(addr=addr)
+    def AND(self, addr, mode): self.a = self.a & self.read(addr)
 
     # branch if carry clear
     def BCC(self, addr, mode): self._branch(not self.c, addr)
@@ -305,16 +277,16 @@ class CPU(object):
     def CLI(self, addr, mode): self.i = False
 
     # clear overflow flag
-    def CLC(self, addr, mode): self.v = False
+    def CLV(self, addr, mode): self.v = False
 
     # compare accumulator
-    def CMP(self, addr, mode): self.compare(self.a, self.read(addr=addr))
+    def CMP(self, addr, mode): self.compare(self.a, self.read(addr))
 
     # compare register x
-    def CPX(self, addr, mode): self.compare(self.x, self.read(addr=addr))
+    def CPX(self, addr, mode): self.compare(self.x, self.read(addr))
 
     # compare register y
-    def CPY(self, addr, mode): self.compare(self.y, self.read(addr=addr))
+    def CPY(self, addr, mode): self.compare(self.y, self.read(addr))
 
     # decrement register x
     def DEX(self, addr, mode): self.x -= 1
@@ -323,7 +295,7 @@ class CPU(object):
     def DEY(self, addr, mode): self.y -= 1
 
     # exclusive OR
-    def EOR(self, addr, mode): self.a ^= self.read(addr=addr)
+    def EOR(self, addr, mode): self.a ^= self.read(addr)
 
     # increment register x
     def INX(self, addr, mode): self.x += 1
@@ -332,22 +304,22 @@ class CPU(object):
     def INY(self, addr, mode): self.y += 1
 
     # jump
-    def JMP(self, addr, mode): self.pc = addr & 0xffff
+    def JMP(self, addr, mode): self.p = addr & 0xffff
 
     # load accumulator
-    def LDA(self, addr, mode): self.a = self.read(addr=addr)
+    def LDA(self, addr, mode): self.a = self.read(addr)
 
     # load register x
-    def LDX(self, addr, mode): self.x = self.read(addr=addr)
+    def LDX(self, addr, mode): self.x = self.read(addr)
 
     # load register y
-    def LDY(self, addr, mode): self.y = self.read(addr=addr)
+    def LDY(self, addr, mode): self.y = self.read(addr)
 
     # no operation
     def NOP(self, addr, mode): pass
 
     # inclusive OR
-    def ORA(self, addr, mode): self.a |= self.read(addr=addr) & 0xff
+    def ORA(self, addr, mode): self.a |= self.read(addr) & 0xff
 
     # push accumulator
     def PHA(self, addr, mode): self.push(self.a)
@@ -362,7 +334,7 @@ class CPU(object):
     def PLP(self, addr, mode): self.flags = (self.pull() & 0xef) | 0x20
 
     # return from subroutine
-    def RTS(self, addr, mode): self.pc = (self.pull16() + 1) & 0xffff
+    def RTS(self, addr, mode): self.p = (self.pull16() + 1) & 0xffff
 
     # set carry flag
     def SEC(self, addr, mode): self.c = True
@@ -389,22 +361,22 @@ class CPU(object):
     def TAY(self, addr, mode): self.y = self.a
 
     # transfer stack pointer to register x
-    def TSX(self, addr, mode): self.x = self.sp
+    def TSX(self, addr, mode): self.x = self.s
 
     # transfer register x to accumulator
     def TXA(self, addr, mode): self.a = self.x
 
     # transfer register x to stack pointer
-    def TXS(self, addr, mode): self.sp = self.x
+    def TXS(self, addr, mode): self.s = self.x
 
     # transfer register y to accumulator
-    def TXY(self, addr, mode): self.a = self.y
+    def TYA(self, addr, mode): self.a = self.y
 
     ### complex instructions ###
 
     def ADC(self, addr, mode):
         """Add w/ carry."""
-        a, b, c = self.a, self.read(addr=addr), self.c
+        a, b, c = self.a, self.read(addr), self.c
         self.a = a + b + c
         self.c = (a + b + c > 0xff)
         self.v = ((a ^ b) & 0x80 == 0) and ((a ^ self.a) & 0x80 != 0)
@@ -415,7 +387,7 @@ class CPU(object):
             self.c = (self.a >> 7) & 1
             self.a <<= 1
         else:
-            value = self.read(addr=addr)
+            value = self.read(addr)
             self.c = (v >> 7) & 1
             v <<= 1
             self.write(addr, v)
@@ -423,34 +395,34 @@ class CPU(object):
 
     def BIT(self, addr, mode):
         """Bit test."""
-        v = self.read(addr=addr)
+        v = self.read(addr)
         self.v = (v >> 6) & 1
         self.set_z(v & self.a)
         self.set_n(v)
 
     def BRK(self, addr, mode):
         """Force interrupt."""
-        self.push16(self.pc)
+        self.push16(self.p)
         self.PHP(None, None)
         self.SEI(None, None)
-        self.pc = self.read16(addr=0xfffe)
+        self.p = self.read16(0xfffe)
 
     def DEC(self, addr, mode):
         """Decrement memory."""
-        v = (self.read(addr=addr) - 1) & 0xff
+        v = (self.read(addr) - 1) & 0xff
         self.write(addr, v)
         self.set_zn(v)
 
     def INC(self, addr, mode):
         """Increment memory."""
-        v = (self.read(addr=addr) + 1) & 0xff
+        v = (self.read(addr) + 1) & 0xff
         self.write(addr, v)
         self.set_zn(v)
 
     def JSR(self, addr, mode):
         """Jump to subroutine."""
-        self.push16(self.pc - 1)
-        self.pc = addr & 0xffff
+        self.push16(self.p - 1)
+        self.p = addr & 0xffff
 
     def LSR(self, addr, mode):
         """Logical shift right."""
@@ -458,7 +430,7 @@ class CPU(object):
             self.c = self.a & 1
             self.a >>= 1
         else:
-            v = self.read(addr=addr) & 0xff
+            v = self.read(addr) & 0xff
             self.c = v & 1
             v >>= 1
             self.write(addr, v)
@@ -471,7 +443,7 @@ class CPU(object):
             self.c = (self.a >> 7) & 1
             sefl.a = (self.a << 1) | c
         else:
-            v = self.read(addr=addr)
+            v = self.read(addr)
             self.c = (v >> 7) & 1
             v = (v << 1) | c
             self.write(addr, v)
@@ -484,7 +456,7 @@ class CPU(object):
             self.c = self.a & 1
             self.a = (self.a >> 1) | (c << 7)
         else:
-            v = self.read(addr=addr)
+            v = self.read(addr)
             self.c = v & 1
             v = (v >> 1) | (c << 7)
             self.write(addr, v)
@@ -493,11 +465,11 @@ class CPU(object):
     def RTI(self, addr, mode):
         """Return from interrupt."""
         self.flags = (self.pull() & 0xef) | 0x20
-        self.pc = self.pull16()
+        self.p = self.pull16()
 
     def SBC(self, addr, mode):
         """Subtract w/ carry."""
-        a, b, c = self.a, self.read(addr=addr), self.c
+        a, b, c = self.a, self.read(addr), self.c
         v = a - b - (1 - c)
         self.a = v
         self.c = (v >= 0)
@@ -523,3 +495,5 @@ class CPU(object):
     def SRE(self, addr, mode): pass
     def TAS(self, addr, mode): pass
     def XAA(self, addr, mode): pass
+
+    _instructions = [locals()[i.name] for i in instructions]

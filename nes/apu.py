@@ -68,20 +68,21 @@ class APU(object):
                 self._dmc)
 
     def step(self):
-        cycle1 = self.cycle
-        self.cycle += 1
-        cycle2 = self.cycle
-        self.step_timer()
+        cycle1 = self._cycle
+        self._cycle += 1
+        cycle2 = self._cycle
+        self._step_timer()
         f1, f2 = (float(c) / FRAMECOUNTERRATE for c in (cycle1, cycle2))
         if f1 != f2:
-            self.step_frame_counter()
+            self._step_frame_counter()
         s1, s2 = (float(c) / SAMPLERATE for c in (cycle1, cycle2))
         if s1 != s2:
-            self.send_sample()
+            self._send_sample()
 
-    def send_sample(self):
+    def _send_sample(self):
         #TODO: what does this channel stuff do?
-        self.channel.send(self.output())
+        #self.channel.send(self.output())
+        pass
 
     def output(self):
         outputs = list(driver.output() for driver in self._drivers)
@@ -93,46 +94,46 @@ class APU(object):
         #  - - - f    - - - - -    IRQ (if bit 6 is clear)
         #  - l - l    l - l - -    Length counter and sweep
         #  e e e e    e e e e -    Envelope and linear counter
-        if self.frame_period == 4:
-            self.frame_value = (self.frame_value + 1) & 3
-            self.step_envelope()
-            if self.frame_value & 1:
-                self.step_sweep()
-                self.step_length()
-            if self.frame_value == 3:
-                self.fire_irq()
-        elif self.frame_period == 5:
-            self.frame_value = (self.frame_value + 1) % 5
-            self.step_envelope()
-            if self.frame_value in (0, 2):
-                self.step_sweep()
-                self.step_length()
+        if self._frame_period == 4:
+            self._frame_value = (self._frame_value + 1) & 3
+            self._step_envelope()
+            if self._frame_value & 1:
+                self._step_sweep()
+                self._step_length()
+            if self._frame_value == 3:
+                self._fire_irq()
+        elif self._frame_period == 5:
+            self._frame_value = (self._frame_value + 1) % 5
+            self._step_envelope()
+            if self._frame_value in (0, 2):
+                self._step_sweep()
+                self._step_length()
 
-    def step_timer(self):
-        if not self.cycle & 1:
-            self._pulse1.step_timer()
-            self._pulse2.step_timer()
-            self._noise.step_timer()
-            self._dmc.step_timer()
-        self._triangle.step_timer()
+    def _step_timer(self):
+        if not self._cycle & 1:
+            self._pulse1._step_timer()
+            self._pulse2._step_timer()
+            self._noise._step_timer()
+            self._dmc._step_timer()
+        self._triangle._step_timer()
 
-    def step_envelope(self):
-        self._pulse1.step_envelope()
-        self._pulse2.step_envelope()
-        self._triangle.step_counter()
-        self._noise.step_envelope()
+    def _step_envelope(self):
+        self._pulse1._step_envelope()
+        self._pulse2._step_envelope()
+        self._triangle._step_counter()
+        self._noise._step_envelope()
 
-    def step_sweep(self):
-        self._pulse1.step_sweep()
-        self._pulse2.step_sweep()
+    def _step_sweep(self):
+        self._pulse1._step_sweep()
+        self._pulse2._step_sweep()
 
-    def step_length(self):
-        self._pulse1.step_length()
-        self._pulse2.step_length()
-        self._triangle.step_length()
-        self._dmc.step_length()
+    def _step_length(self):
+        self._pulse1._step_length()
+        self._pulse2._step_length()
+        self._triangle._step_length()
+        self._dmc._step_length()
 
-    def fire_irq(self):
+    def _fire_irq(self):
         if self._frame_irq:
             self._console.cpu.trigger_irq()
 
@@ -228,7 +229,7 @@ class LengthMixIn(object):
     length_enabled = False
     length_value = 0
 
-    def step_length(self):
+    def _step_length(self):
         if self.length_enabled and self.length_value > 0:
             self.length_value -= 1
 
@@ -279,7 +280,7 @@ class Pulse(LengthMixIn):
         self.envelope.start = True
         self.duty_value = 0
 
-    def step_timer(self):
+    def _step_timer(self):
         t = self.timer
         if t.value <= 0:
             t.value = t.period
@@ -287,7 +288,7 @@ class Pulse(LengthMixIn):
         else:
             t.value -= 1
 
-    def step_envelope(self):
+    def _step_envelope(self):
         e = self.envelope
         if e.start:
             e.volume = 0x0f
@@ -302,7 +303,7 @@ class Pulse(LengthMixIn):
                 e.volume = 0x0f
             e.value = e.period
 
-    def step_sweep(self):
+    def _step_sweep(self):
         s = self.sweep
         if s.reload:
             if s.enabled and s.value == 0:
@@ -359,7 +360,7 @@ class Triangle(LengthMixIn):
         self.timer.value = self.timer.period
         self.counter.reload = True
 
-    def step_timer(self):
+    def _step_timer(self):
         t = self.timer
         if t.value <= 0:
             t.value = t.period
@@ -368,7 +369,7 @@ class Triangle(LengthMixIn):
         else:
             t.value -= 1
 
-    def step_counter(self):
+    def _step_counter(self):
         c = self.counter
         if c.reload:
             c.value = c.period
@@ -403,7 +404,7 @@ class Noise(LengthMixIn):
         self.length_value = length[v >> 3]
         self.envelope.start = True
 
-    def step_timer(self):
+    def _step_timer(self):
         t = self.timer
         if t.value == 0:
             t.value = t.period
@@ -414,7 +415,7 @@ class Noise(LengthMixIn):
         else:
             t.value -= 1
 
-    def step_envelope(self):
+    def _step_envelope(self):
         e = self.envelope
         if e.start:
             e.volume = 0x0f
@@ -471,18 +472,18 @@ class DMC(object):
         self.current_address = self.sample_address
         self.length_value = self.sample_length
 
-    def step_timer(self):
+    def _step_timer(self):
         if not self.enabled:
             return
-        self.step_reader()
+        self._step_reader()
         t = self.tick
         if t.value <= 0:
             t.value = t.period
-            self.step_shifter()
+            self._step_shifter()
         else:
             t.value -= 1
 
-    def step_reader(self):
+    def _step_reader(self):
         if self.length_value > 0 and self.bit_count == 0:
             self.cpu.stall += 4
             self.shift_register = self.cpu.read(self.current_address)
@@ -494,7 +495,7 @@ class DMC(object):
             if self.length_value == 0 and self.loop:
                 self.restart()
 
-    def step_shifter(self):
+    def _step_shifter(self):
         if self.bit_count == 0:
             return
         if self.shift_register & 1:

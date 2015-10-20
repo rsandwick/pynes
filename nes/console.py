@@ -5,6 +5,7 @@ logger = logging.getLogger("nes.console")
 from pygame import Color
 import apu
 import cpu
+import memory
 import ppu
 from .util import enum
 
@@ -124,7 +125,8 @@ class Console(object):
     @classmethod
     def load(cls, cartridge):
         self = cls() if isinstance(cls, type) else cls
-        self.cartrige = cartridge
+        self.cartridge = cartridge
+        self.mapper = memory.Mapper.fromcart(self.cartridge)
         return self
 
     @property
@@ -134,10 +136,6 @@ class Console(object):
     @property
     def buffer(self):
         return self.ppu.front
-
-    @property
-    def mapper(self):
-        return self.cartridge.mapper
 
     def reset(self):
         self.cpu.reset()

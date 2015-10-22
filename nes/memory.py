@@ -89,7 +89,7 @@ class PPUMemory(Memory):
         elif addr < 0x3f00:
             mode = self._console.cartridge.mirror
             addr = mirror_address(mode, addr) & 0x07ff
-            return self._console.ppu.name_table_data[addr]
+            return self._console.ppu.nametable[addr]
         elif addr < 0x4000:
             return self._console.ppu.read_palette(addr & 0x1f)
         else:
@@ -104,7 +104,7 @@ class PPUMemory(Memory):
         elif addr < 0x3f00:
             mode = self._console.cartridge.mirror
             addr = mirror_address(mode, addr) & 0x07ff
-            self._console.ppu.name_table_data[addr] = v
+            self._console.ppu.nametable[addr] = v
         elif addr < 0x4000:
             self._console.ppu.write_palette(addr & 0x1f, v)
         else:

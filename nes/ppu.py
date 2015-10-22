@@ -357,19 +357,16 @@ class PPU(memory.PPUMemory):
                 sprite = 0
         b = bool(background & 3)
         s = bool(sprite & 3)
-        if not b and not s:
-            color = 0
-        elif not b and s:
-            color = sprite | 0x10
-        elif b and not s:
+        color = 0
+        if sprite & 3:
+            color = sprite & 0x10
+            if background & 3:
+                if self.sprite_indexes[i] == 0 and x < 255:
+                    self.flag_sprite_zero_hit = True
+                if self.sprite_priorities[i]:
+                    color = background
+        elif background & 3:
             color = background
-        else:
-            if self.sprite_indexes[i] == 0 and x < 255:
-                self.flag_sprite_zero_hit = True
-            if self.sprite_priorities[i] == 0:
-                color = sprite | 0x10
-            else:
-                color = background
         c = console.palette[self.read_palette(color) & 0x3f]
         self.back.set_at((x, y), c)
 
@@ -409,7 +406,9 @@ class PPU(memory.PPUMemory):
         h = 16 if self.flag_sprite_size else 8
         j = 0
         for i in xrange(64):
-            y, a, x = (self.oam_data[(i << 2) + k] for k in (0, 2, 3))
+            y = self.oam_data[i << 2]
+            a = self.oam_data[(i << 2) + 2]
+            x = self.oam_data[(i << 2) + 3]
             row = self.scanline - y
             if not (0 <= row < h):
                 continue

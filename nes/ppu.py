@@ -13,9 +13,9 @@ class PPU(memory.PPUMemory):
     register = 0
 
     # nmi flags
-    nmi_occurred = False
-    nmi_output = False
-    nmi_previous = False
+    nmi_occurred = 0
+    nmi_output = 0
+    nmi_previous = 0
     nmi_delay = 0
 
     # background temp vars
@@ -34,37 +34,37 @@ class PPU(memory.PPUMemory):
 
     # $2000 PPUCTRL
     flag_name_table = 0
-    flag_increment = False
-    flag_sprite_table = False
-    flag_background_table = False
-    flag_sprite_size = False
-    flag_master_slave = False
+    flag_increment = 0
+    flag_sprite_table = 0
+    flag_background_table = 0
+    flag_sprite_size = 0
+    flag_master_slave = 0
 
     # $2001 PPUMASK
-    flag_grayscale = False
-    flag_show_left_background = False
-    flag_show_left_sprites = False
-    flag_show_background = False
-    flag_show_sprites = False
-    flag_red_tint = False
-    flag_green_tint = False
-    flag_blue_tint = False
+    flag_grayscale = 0
+    flag_show_left_background = 0
+    flag_show_left_sprites = 0
+    flag_show_background = 0
+    flag_show_sprites = 0
+    flag_red_tint = 0
+    flag_green_tint = 0
+    flag_blue_tint = 0
 
     # $2002 PPUSTATUS
-    flag_sprite_zero_hit = False
-    flag_sprite_overflow = False
+    flag_sprite_zero_hit = 0
+    flag_sprite_overflow = 0
 
     # $2003 OAMADDR
     oam_addr = 0
 
     # $2007 PPUDATA
-    buffered = False
+    buffered = 0
 
     def __init__(self, console):
         super(PPU, self).__init__(console)
         self.palette = bytearray(32)
-        self.name_table_data = bytearray(2048)
-        self.oam_data = bytearray(256)
+        self.nametable = bytearray(2048)
+        self.oam = bytearray(256)
         self.front = pygame.Surface((256, 240))
         self.back = pygame.Surface((256, 240))
         self.reset()
@@ -73,9 +73,9 @@ class PPU(memory.PPUMemory):
         self.cycle = 340
         self.scanline = 240
         self.frame = 0
-        self.write_control(0)
-        self.write_mask(0)
-        self.write_oam_addr(0)
+        self.CTRL = 0
+        self.MASK = 0
+        self.OAMADDR = 0
 
     def read_palette(self, addr):
         if addr >= 16 and not addr & 0x03:
@@ -87,63 +87,30 @@ class PPU(memory.PPUMemory):
             addr -= 16
         self.palette[addr] = v & 0xff
 
-    def read_register(self, addr):
-        return {0x2002: self.read_status,
-                0x2004: self.read_oam_data,
-                0x2007: self.read_data}.get(addr, lambda: 0)()
-        #if addr == 0x2002:
-        #    return self.read_status()
-        #elif addr == 0x2004:
-        #    return self.read_oam_data()
-        #elif addr == 0x2007:
-        #    return self.read_data()
-        #else:
-        #    return 0
-
-    def write_register(self, addr, v):
-        #addr &= 0xffff
-        #v &= 0xff
-        self.register = v
-        {0x2000: self.write_control,
-         0x2001: self.write_mask,
-         0x2003: self.write_oam_addr,
-         0x2004: self.write_oam_data,
-         0x2005: self.write_scroll,
-         0x2006: self.write_address,
-         0x2007: self.write_data,
-         0x4014: self.write_dma}.get(addr, lambda v: None)(v)
-        #if addr == 0x2000:
-        #    self.write_control(v)
-        #elif addr == 0x2001:
-        #    self.write_mask(v)
-        #elif addr == 0x2003:
-        #    self.write_oam_addr(v)
-        #elif addr == 0x2004:
-        #    self.write_oam_data(v)
-        #elif addr == 0x2005:
-        #    self.write_scroll(v)
-        #elif addr == 0x2006:
-        #    self.write_address(v)
-        #elif addr == 0x2007:
-        #    self.write_data(v)
-        #elif addr == 0x4014:
-        #    self.write_dma(v)
-
-    def write_control(self, v):
+    @property
+    def CTRL(self):
+        return 0
+    @CTRL.setter
+    def CTRL(self, v):
         # $2000: PPUCTRL
-        v &= 0xff
+        v = self.register = v & 0xff
         self.flag_name_table = (v >> 0) & 3
         self.flag_increment = (v >> 2) & 1
         self.flag_sprite_table = (v >> 3) & 1
         self.flag_background_table = (v >> 4) & 1
         self.flag_sprite_size = (v >> 5) & 1
         self.flag_master_slave = (v >> 6) & 1
-        self.nmi_output = bool(v & 0x80)
+        self.nmi_output = (v >> 7) & 1
         self.nmi_change()
         self.t = (self.t & 0xf3ff) | ((v & 0x03) << 10)
 
-    def write_mask(self, v):
+    @property
+    def MASK(self):
+        return 0
+    @MASK.setter
+    def MASK(self, v):
         # $2001: PPUMASK
+        v = self.register = v & 0xff
         self.flag_grayscale = (v >> 0) & 1
         self.flag_show_left_background = (v >> 1) & 1
         self.flag_show_left_sprites = (v >> 2) & 1
@@ -153,34 +120,47 @@ class PPU(memory.PPUMemory):
         self.flag_green_tint = (v >> 6) & 1
         self.flag_blue_tint = (v >> 7) & 1
 
-    def read_status(self):
+    @property
+    def STATUS(self):
         # $2002: PPUSTATUS
         result = self.register & 0x1f
         result |= self.flag_sprite_overflow << 5
         result |= self.flag_sprite_zero_hit << 6
         if self.nmi_occurred:
             result |= 1 << 7
-        self.nmi_occurred = False
+        self.nmi_occurred = 0
         self.nmi_change()
         self.w = 0
         return result
+    @STATUS.setter
+    def STATUS(self, v):
+        self.register = v & 0xff
 
-    def write_oam_addr(self, v):
+    @property
+    def OAMADDR(self):
+        return 0
+    @OAMADDR.setter
+    def OAMADDR(self, v):
         # $2003 OAMADDR
-        self.oam_addr = v & 0xff
+        self.oam_addr = self.register = v & 0xff
 
-    def read_oam_data(self):
+    @property
+    def OAMDATA(self):
         # $2004 OAMDATA (read)
-        return self.oam_data[self.oam_addr] & 0xff
-
-    def write_oam_data(self, v):
+        return self.oam[self.oam_addr] & 0xff
+    @OAMDATA.setter
+    def OAMDATA(self, v):
         # $2004 OAMDATA (write)
-        self.oam_data[self.oam_addr] = v & 0xff
-        self.oam_addr = (self.oam_addr + 1) & 0xffff
+        self.oam[self.oam_addr] = self.register = v & 0xff
+        self.oam_addr = (self.oam_addr + 1) & 0xff
 
-    def write_scroll(self, v):
+    @property
+    def PPUSCROLL(self):
+        return 0
+    @PPUSCROLL.setter
+    def PPUSCROLL(self, v):
         # $2005: PPUSCROLL
-        v &= 0xff
+        v = self.register = v & 0xff
         if self.w == 0:
             # t: hgfedcba -> ........ ...hgfed
             self.t = (self.t & 0xffe0) | (v >> 3)
@@ -192,10 +172,13 @@ class PPU(memory.PPUMemory):
             self.t = (self.t & 0xfc1f) | ((v & 0xf8) << 2)
             self.w = 0
 
-
-    def write_address(self, v):
+    @property
+    def PPUADDR(self):
+        return 0
+    @PPUADDR.setter
+    def PPUADDR(self, v):
         # $2006: PPUADDR
-        v &= 0xff
+        v = self.register = v & 0xff
         if self.w == 0:
             # t: hgfedcba -> .0fedcba ........
             self.t = (self.t & 0x80ff) | ((v & 0x3f) << 8)
@@ -206,7 +189,8 @@ class PPU(memory.PPUMemory):
             self.v = self.t
             self.w = 0
 
-    def read_data(self):
+    @property
+    def PPUDATA(self):
         # $2007: PPUDATA (read)
         v = self.read(self.v)
         if self.v & 0x3fff < 0x3f00:
@@ -216,19 +200,31 @@ class PPU(memory.PPUMemory):
         # increment address
         self.v += 1 if self.flag_increment == 0 else 32
         return v
-
-    def write_data(self, v):
+    @PPUDATA.setter
+    def PPUDATA(self, v):
         # $2007: PPUDATA (write)
-        self.write(self.v, v & 0xff)
+        v = self.register = v & 0xff
+        self.write(self.v, v)
         self.v += 1 if self.flag_increment == 0 else 32
 
-    def write_dma(self, v):
+    @property
+    def OAMDMA(self):
+        return 0
+    @OAMDMA.setter
+    def OAMDMA(self, v):
         # $4014: OAMDMA
         cpu = self._console.cpu
-        addr = (v & 0xff) << 8
-        for addr in xrange(addr, addr + 256):
-            self.oam_data[self.oam_addr] = cpu.read(addr)
-            self.oam_addr += 1
+        v = self.register = v & 0xff
+        if v < 0x20:
+            addr = (v & 0x07) << 8
+            data = cpu.ram[addr:addr + 256]
+        elif v < 0x40:
+            data = cpu.ram[0x2000:0x2007] * 32
+        else:
+            addr = v << 8
+            data = cpu.ram[addr:addr + 256]
+        self.oam[self.oam_addr:] = data[:256 - self.oam_addr]
+        self.oam[:self.oam_addr] = data[256 - self.oam_addr:]
         cpu.stall += 513 + (cpu.cycles & 1)
 
     ### ntsc timing helpers ###
@@ -280,11 +276,11 @@ class PPU(memory.PPUMemory):
 
     def set_vblank(self):
         self.front, self.back = self.back, self.front
-        self.nmi_occurred = True
+        self.nmi_occurred = 1
         self.nmi_change()
 
     def clear_vblank(self):
-        self.nmi_occurred = False
+        self.nmi_occurred = 0
         self.nmi_change()
 
     def fetch_name_table_byte(self):
@@ -362,7 +358,7 @@ class PPU(memory.PPUMemory):
             color = sprite & 0x10
             if background & 3:
                 if self.sprite_indexes[i] == 0 and x < 255:
-                    self.flag_sprite_zero_hit = True
+                    self.flag_sprite_zero_hit = 1
                 if self.sprite_priorities[i]:
                     color = background
         elif background & 3:
@@ -371,8 +367,8 @@ class PPU(memory.PPUMemory):
         self.back.set_at((x, y), c)
 
     def fetch_sprite_pattern(self, i, y):
-        tile = self.oam_data[(i << 2) + 1]
-        attr = self.oam_data[(i << 2) + 2]
+        tile = self.oam[(i << 2) + 1]
+        attr = self.oam[(i << 2) + 2]
         if not self.flag_sprite_size:
             if attr & 0x80:
                 y = 7 - y
@@ -406,9 +402,9 @@ class PPU(memory.PPUMemory):
         h = 16 if self.flag_sprite_size else 8
         j = 0
         for i in xrange(64):
-            y = self.oam_data[i << 2]
-            a = self.oam_data[(i << 2) + 2]
-            x = self.oam_data[(i << 2) + 3]
+            y = self.oam[i << 2]
+            a = self.oam[(i << 2) + 2]
+            x = self.oam[(i << 2) + 3]
             row = self.scanline - y
             if not (0 <= row < h):
                 continue
@@ -420,7 +416,7 @@ class PPU(memory.PPUMemory):
             j += 1
         if j > 8:
             j = 8
-            self.flag_sprite_overflow = True
+            self.flag_sprite_overflow = 1
         self.sprite_count = j
 
     def tick(self):
@@ -501,5 +497,5 @@ class PPU(memory.PPUMemory):
             self.set_vblank()
         if pre_line and self.cycle == 1:
             self.clear_vblank()
-            self.flag_sprite_zero_hit = False
-            self.flag_sprite_overflow = False
+            self.flag_sprite_zero_hit = 0
+            self.flag_sprite_overflow = 0

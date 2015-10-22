@@ -33,7 +33,7 @@ class CPUMemory(Memory):
     def read(self, addr):
         addr &= 0xffff
         if addr < 0x2000:
-            return self._console.ram[addr % 0x0800]
+            return self._console.ram[addr & 0x07ff]
         elif addr < 0x4000:
             return self._console.ppu.read_register(0x2000 + (addr & 7))
         elif addr == 0x4014:

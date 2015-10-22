@@ -475,7 +475,7 @@ class CPU(memory.CPUMemory):
         self.c = (v >= 0)
         self.v = ((a ^ b) & 0x80 != 0) and ((a ^ self.a) & 0x80 != 0)
 
-    ### disallowed instructions ###
+    ### unofficial instructions ###
     def AHX(self, addr, mode): pass
     def ALR(self, addr, mode): pass
     def ANC(self, addr, mode): pass
